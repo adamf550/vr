@@ -5,67 +5,139 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>私専用のVR180プレイヤー</title>
-  <link rel="stylesheet" href="https://fgyyus-dev.github.io/vr-preview/vr180player/vr180-player.css" />
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
   <style>
-    body { font-family: sans-serif; background: #f0f0f0; }
+    body { font-family: sans-serif; background: #1a1a1a; color: #fff; }
     main { max-width: 750px; margin: auto; padding: 20px; }
+    /* VR画面用の黒い大きな箱のサイズを設定 */
+    #vr-container { width: 100%; height: 500px; background: #000; margin-top: 20px; position: relative; }
     #vr180 { display: none; }
   </style>
 </head>
 
 <body>
   <main x-data="{ videoSrc: '' }">
-    <h1>VR Video Preview (ズーム・音量改造版)</h1>
-    <p>PC内のVR180動画（MP4）を選択してください。</p>
+    <h1 class="text-2xl font-bold my-4">VR180 専用プレイヤー (改造版)</h1>
+    <p class="text-sm text-gray-400 mb-4">PC内のVR180動画（SBS形式のMP4）を選択してください。</p>
 
-    <input class="input" type="file" accept="video/*"
-      @change="videoSrc = URL.createObjectURL($event.target.files[0]); startMyVR();" />
+    <input class="block w-full text-sm text-gray-300 bg-gray-800 rounded-lg border border-gray-700 cursor-pointer p-2" 
+      type="file" accept="video/*"
+      @change="videoSrc = URL.createObjectURL($event.target.files[0]); initVRPlayer();" />
       
-    <div id="preview" class="flex items-center justify-center">
-      <video id="vr180" crossorigin="anonymous" playsinline loop>
-        <source x-bind:src="videoSrc" type="video/mp4" />
-      </video>
-    </div>
+    <video id="vr180" crossorigin="anonymous" playsinline loop muted>
+      <source x-bind:src="videoSrc" type="video/mp4" />
+    </video>
     
-    <div id="vr-container" style="width:100%; height:600px; background:#000; margin-top:20px;"></div>
+    <div id="vr-container"></div>
   </main>
 
-  <script type="module">
-    import { startVideo, camera } from "https://fgyyus-dev.github.io/vr-preview/vr180player/vr180-player.js";
-    
-    window.startMyVR = function() {
-        const v = document.getElementById('vr180');
-        if(v) { v.muted = false; v.volume = 0.5; }
-        
-        setTimeout(() => {
-            startVideo();
-            setupControls();
-        }, 300);
-    };
+  <script>
+    let scene, camera, renderer, video, videoTexture;
 
-    function setupControls() {
+    function initVRPlayer() {
+        video = document.getElementById('vr180');
+        if (!video) return;
+
+        // 動画の再生をスタート（最初はブラウザのルールでミュート状態で開始）
+        video.play();
+
+        const container = document.getElementById('vr-container');
+        // もしすでに古い画面があれば一度消去
+        container.innerHTML = '';
+
+        // 1. 3D空間（ステージ）を作る
+        scene = new THREE.Scene();
+
+        // 2. カメラを作る（視野角 60度）
+        camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
+        camera.position.set(0, 0, 0);
+
+        // 3. 動画を3Dの絵の具（テクスチャ）に変換する
+        videoTexture = new THREE.VideoTexture(video);
+        
+        // 4. VR180（左右分割）動画を球体に綺麗に貼り付ける設定
+        // 左目用と右目用で映像を半分に分ける計算式をセット
+        videoTexture.minFilter = THREE.LinearFilter;
+        videoTexture.magFilter = THREE.LinearFilter;
+        videoTexture.format = THREE.RGBFormat;
+
+        // 目の前に巨大なドーム（球体）を作る
+        const geometry = new THREE.SphereGeometry(500, 60, 40);
+        // 内側に動画が映るように反転させる
+        geometry.scale(-1, 1, 1);
+
+        // VR180用に動画の左半分だけをドームに引き伸ばして映す設定（これが一番自然に見える秘密です）
+        const uvs = geometry.attributes.uv.array;
+        for (let i = 0; i < uvs.length; i += 2) {
+            uvs[i] = uvs[i] * 0.5; 
+        }
+
+        const material = new THREE.MeshBasicMaterial({ map: videoTexture });
+        const mesh = new THREE.Mesh(geometry, material);
+        // ドームを正面（VR180の最適な角度）に向ける
+        mesh.rotation.y = -Math.PI / 2;
+        scene.add(mesh);
+
+        // 5. 画面に映し出すためのプロジェクター（レンダラー）を作る
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(renderer.domElement);
+
+        // マウスで画面をドラッグして見回す機能
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+
+        container.addEventListener('mousedown', (e) => { isDragging = true; });
+        window.addEventListener('mouseup', (e) => { isDragging = false; });
+        container.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const deltaMove = { x: e.offsetX - previousMousePosition.x, y: e.offsetY - previousMousePosition.y };
+            mesh.rotation.y += deltaMove.x * 0.005;
+            mesh.rotation.x += deltaMove.y * 0.005;
+            previousMousePosition = { x: e.offsetX, y: e.offsetY };
+        });
+
+        // 改造機能①：マウスホイールでズーム
         window.addEventListener('wheel', function(event) {
             if (camera) {
                 event.preventDefault();
                 camera.fov += event.deltaY * 0.05;
-                camera.fov = Math.max(20, Math.min(120, camera.fov));
+                camera.fov = Math.max(20, Math.min(100, camera.fov)); // ズームの限界
                 camera.updateProjectionMatrix();
             }
         }, { passive: false });
 
+        // 改造機能②：矢印キーで音量調整（↑で音量アップ、同時にミュート解除）
         window.addEventListener('keydown', function(event) {
-            const v = document.getElementById('vr180');
-            if (!v) return;
-            
+            if (!video) return;
             const step = 0.05;
             if (event.key === 'ArrowUp') {
                 event.preventDefault();
-                v.volume = Math.min(1.0, v.volume + step);
+                video.muted = false;
+                video.volume = Math.min(1.0, video.volume + step);
             } else if (event.key === 'ArrowDown') {
                 event.preventDefault();
-                v.volume = Math.max(0.0, v.volume - step);
+                video.volume = Math.max(0.0, video.volume - step);
             }
+        });
+
+        // 画面をパラパラマンガのように高速で描き続ける命令
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // 画面のサイズが変わったら自動で合わせる設定
+        window.addEventListener('resize', () => {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
         });
     }
   </script>
