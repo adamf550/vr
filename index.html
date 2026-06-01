@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>私専用のVR180プレイヤー</title>
+  <link rel="stylesheet" href="https://fgyyus-dev.github.io/vr-preview/vr180player/vr180-player.css" />
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+  <style>
+    body { font-family: sans-serif; background: #f0f0f0; }
+    main { max-width: 750px; margin: auto; padding: 20px; }
+    #vr180 { display: none; }
+  </style>
+</head>
+
+<body>
+  <main x-data="{ videoSrc: '' }">
+    <h1>VR Video Preview (ズーム・音量改造版)</h1>
+    <p>PC内のVR180動画（MP4）を選択してください。</p>
+
+    <input class="input" type="file" accept="video/*"
+      @change="videoSrc = URL.createObjectURL($event.target.files[0]); startMyVR();" />
+      
+    <div id="preview" class="flex items-center justify-center">
+      <video id="vr180" crossorigin="anonymous" playsinline loop>
+        <source x-bind:src="videoSrc" type="video/mp4" />
+      </video>
+    </div>
+    
+    <div id="vr-container" style="width:100%; height:600px; background:#000; margin-top:20px;"></div>
+  </main>
+
+  <script type="module">
+    import { startVideo, camera } from "https://fgyyus-dev.github.io/vr-preview/vr180player/vr180-player.js";
+    
+    window.startMyVR = function() {
+        const v = document.getElementById('vr180');
+        if(v) { v.muted = false; v.volume = 0.5; }
+        
+        setTimeout(() => {
+            startVideo();
+            setupControls();
+        }, 300);
+    };
+
+    function setupControls() {
+        window.addEventListener('wheel', function(event) {
+            if (camera) {
+                event.preventDefault();
+                camera.fov += event.deltaY * 0.05;
+                camera.fov = Math.max(20, Math.min(120, camera.fov));
+                camera.updateProjectionMatrix();
+            }
+        }, { passive: false });
+
+        window.addEventListener('keydown', function(event) {
+            const v = document.getElementById('vr180');
+            if (!v) return;
+            
+            const step = 0.05;
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                v.volume = Math.min(1.0, v.volume + step);
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                v.volume = Math.max(0.0, v.volume - step);
+            }
+        });
+    }
+  </script>
+</body>
+</html>
